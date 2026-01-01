@@ -386,11 +386,6 @@ export function getProfile(
 
 /**
  * Get skin URL and model type for a player
- * 
- * @param rid - Request ID for logging
- * @param userId - Player UUID
- * @param profile - Previously fetched Mojang profile
- * @param callback - Called with (error, url, isSlim)
  */
 export function getSkinInfo(
   rid: string,
@@ -403,11 +398,6 @@ export function getSkinInfo(
 
 /**
  * Get cape URL for a player
- * 
- * @param rid - Request ID for logging
- * @param userId - Player UUID
- * @param profile - Previously fetched Mojang profile
- * @param callback - Called with (error, url)
  */
 export function getCapeUrl(
   rid: string,
@@ -415,9 +405,7 @@ export function getCapeUrl(
   profile: MojangProfile | null,
   callback: (err: Error | null, url: string | null) => void
 ): void {
-  getUuidInfo(profile, 'CAPE', (err, url) => {
-    callback(err, url);
-  });
+  getUuidInfo(profile, 'CAPE', (err, url) => callback(err, url));
 }
 
 /**

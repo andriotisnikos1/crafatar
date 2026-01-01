@@ -30,8 +30,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { promisify } from 'util';
 
-// Promisified fs functions for cleaner async code
+// ============================================================================
+// Promisified Functions for Cleaner Async Code
+// ============================================================================
+
 const fsAccess = promisify(fs.access);
+const fsReadFile = promisify(fs.readFile);
 const fsWriteFile = promisify(fs.writeFile);
 
 // ============================================================================
@@ -199,6 +203,10 @@ function getHash(url: string): string {
 // Skin/Cape Storage Functions
 // ============================================================================
 
+// ============================================================================
+// File Operation Helpers
+// ============================================================================
+
 /**
  * Check if a file exists (async helper)
  */
@@ -208,6 +216,17 @@ async function fileExists(filepath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Try to read a file, returning null if it doesn't exist
+ */
+async function readFileIfExists(filepath: string): Promise<Buffer | null> {
+  try {
+    return await fsReadFile(filepath);
+  } catch {
+    return null;
   }
 }
 
@@ -512,12 +531,6 @@ export function getImageHash(
 
 /**
  * Get avatar image for a user
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param overlay - Whether to include helm overlay
- * @param size - Avatar size in pixels
- * @param callback - Called with (error, status, imageBuffer, hash)
  */
 export function getAvatar(
   rid: string,
@@ -526,97 +539,65 @@ export function getAvatar(
   size: number,
   callback: (err: Error | null, status: number, image: Buffer | null, hash: string | null) => void
 ): void {
-  getImageHash(rid, userId, 'skin', (err, status, skinHash, slim) => {
-    if (skinHash) {
-      const facepath = path.join(config.directories.faces, skinHash + '.png');
-      const helmpath = path.join(config.directories.helms, skinHash + '.png');
-      let filepath = facepath;
-
-      // Check if helm overlay exists and is requested
-      fs.access(helmpath, (fsErr) => {
-        if (overlay && !fsErr) {
-          filepath = helmpath;
-        }
-
-        // Resize the image to requested size
-        skins.resizeImg(filepath, size, (imgErr, image) => {
-          if (imgErr) {
-            callback(imgErr, -1, null, skinHash);
-          } else {
-            callback(err, err ? -1 : status, image, skinHash);
-          }
-        });
-      });
-    } else {
-      // User has no skin
+  getImageHash(rid, userId, 'skin', async (err, status, skinHash, slim) => {
+    if (!skinHash) {
       callback(err, status, null, null);
+      return;
     }
+
+    const facepath = path.join(config.directories.faces, skinHash + '.png');
+    const helmpath = path.join(config.directories.helms, skinHash + '.png');
+    
+    // Use helm path if overlay requested and helm exists
+    const useHelm = overlay && await fileExists(helmpath);
+    const filepath = useHelm ? helmpath : facepath;
+
+    skins.resizeImg(filepath, size, (imgErr, image) => {
+      callback(imgErr || err, imgErr ? -1 : status, image, skinHash);
+    });
   });
 }
 
 /**
  * Get full skin image for a user
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param callback - Called with (error, hash, status, imageBuffer, isSlim)
  */
 export function getSkin(
   rid: string,
   userId: string,
-  callback: (
-    err: Error | null,
-    hash: string | null,
-    status: number,
-    image: Buffer | null,
-    slim: boolean
-  ) => void
+  callback: (err: Error | null, hash: string | null, status: number, image: Buffer | null, slim: boolean) => void
 ): void {
-  getImageHash(rid, userId, 'skin', (err, status, skinHash, slim) => {
-    if (skinHash) {
-      const skinpath = path.join(config.directories.skins, skinHash + '.png');
-
-      fs.access(skinpath, (fsErr) => {
-        if (!fsErr) {
-          // Skin exists on disk
-          logging.debug(rid, 'Skin already exists, not downloading');
-          skins.openSkin(rid, skinpath, (skinErr, img) => {
-            callback(skinErr || err, skinHash, status, img, slim);
-          });
-        } else {
-          // Need to download skin
-          networking.saveTexture(rid, skinHash, skinpath, (netErr, response, img) => {
-            callback(netErr || err, skinHash, status, img, slim);
-          });
-        }
-      });
-    } else {
+  getImageHash(rid, userId, 'skin', async (err, status, skinHash, slim) => {
+    if (!skinHash) {
       callback(err, null, status, null, slim);
+      return;
     }
+
+    const skinpath = path.join(config.directories.skins, skinHash + '.png');
+    
+    // Try reading existing file first
+    const existingImage = await readFileIfExists(skinpath);
+    if (existingImage) {
+      logging.debug(rid, 'Skin already exists, not downloading');
+      callback(err, skinHash, status, existingImage, slim);
+      return;
+    }
+
+    // Download from network
+    networking.saveTexture(rid, skinHash, skinpath, (netErr, response, img) => {
+      callback(netErr || err, skinHash, status, img, slim);
+    });
   });
 }
 
 /**
- * Helper to generate render type string for filenames
- * 
- * @param overlay - Whether overlay is enabled
- * @param body - Whether it's a body render
- * @returns Type string like 'body', 'bodyhelm', 'head', 'headhelm'
+ * Generate render type string for filenames
  */
 function getType(overlay: boolean, body: boolean): string {
-  const text = body ? 'body' : 'head';
-  return overlay ? text + 'helm' : text;
+  return (body ? 'body' : 'head') + (overlay ? 'helm' : '');
 }
 
 /**
  * Get 3D render of a user's skin
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param scale - Render scale factor
- * @param overlay - Whether to include overlay layers
- * @param body - True for full body, false for head only
- * @param callback - Called with (error, status, hash, imageBuffer)
  */
 export function getRender(
   rid: string,
@@ -626,70 +607,57 @@ export function getRender(
   body: boolean,
   callback: (err: Error | null, status: number, hash: string | null, image: Buffer | null) => void
 ): void {
-  getSkin(rid, userId, (err, skinHash, status, img, slim) => {
+  getSkin(rid, userId, async (err, skinHash, status, img, slim) => {
     if (!skinHash) {
       callback(err, status, skinHash, null);
       return;
     }
 
     // Build render filename with all parameters
-    const renderFilename = [
-      skinHash,
-      scale,
-      getType(overlay, body),
-      slim ? 's' : 't',
-    ].join('-') + '.png';
-    
+    const renderFilename = `${skinHash}-${scale}-${getType(overlay, body)}-${slim ? 's' : 't'}.png`;
     const renderpath = path.join(config.directories.renders, renderFilename);
 
-    // Check if render already exists
-    fs.access(renderpath, (fsErr) => {
-      if (!fsErr) {
-        // Render exists - load from disk
-        renders.openRender(rid, renderpath, (renderErr, renderedImg) => {
-          callback(renderErr, 1, skinHash, renderedImg);
-        });
+    // Try reading existing render
+    const existingRender = await readFileIfExists(renderpath);
+    if (existingRender) {
+      callback(null, 1, skinHash, existingRender);
+      return;
+    }
+
+    // Need to create render
+    if (!img) {
+      callback(err, 0, skinHash, null);
+      return;
+    }
+
+    // Check for special Alex UUID
+    const isAlex = slim || userId.toLowerCase() === 'mhf_alex';
+
+    renders.drawModel(rid, img, scale, overlay, body, isAlex, async (drawErr, drawnImg) => {
+      if (drawErr || !drawnImg) {
+        callback(drawErr, drawErr ? -1 : 0, skinHash, null);
         return;
       }
 
-      // Need to create render
-      if (!img) {
-        callback(err, 0, skinHash, null);
-        return;
+      try {
+        await fsWriteFile(renderpath, drawnImg, 'binary');
+        callback(null, status, skinHash, drawnImg);
+      } catch (writeErr) {
+        callback(writeErr as Error, status, skinHash, drawnImg);
       }
-
-      // Check for special Alex UUID
-      const isAlex = slim || userId.toLowerCase() === 'mhf_alex';
-
-      renders.drawModel(rid, img, scale, overlay, body, isAlex, (drawErr, drawnImg) => {
-        if (drawErr) {
-          callback(drawErr, -1, skinHash, null);
-        } else if (!drawnImg) {
-          callback(null, 0, skinHash, null);
-        } else {
-          // Save render to disk
-          fs.writeFile(renderpath, drawnImg, 'binary', (writeErr) => {
-            callback(writeErr, status, skinHash, drawnImg);
-          });
-        }
-      });
     });
   });
 }
 
 /**
  * Get cape image for a user
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param callback - Called with (error, hash, status, imageBuffer)
  */
 export function getCape(
   rid: string,
   userId: string,
   callback: (err: Error | null, hash: string | null, status: number, image: Buffer | null) => void
 ): void {
-  getImageHash(rid, userId, 'cape', (err, status, capeHash) => {
+  getImageHash(rid, userId, 'cape', async (err, status, capeHash) => {
     if (!capeHash) {
       callback(err, null, status, null);
       return;
@@ -697,23 +665,18 @@ export function getCape(
 
     const capepath = path.join(config.directories.capes, capeHash + '.png');
 
-    fs.access(capepath, (fsErr) => {
-      if (!fsErr) {
-        // Cape exists on disk
-        logging.debug(rid, 'Cape already exists, not downloading');
-        skins.openSkin(rid, capepath, (skinErr, img) => {
-          callback(skinErr || err, capeHash, status, img);
-        });
-      } else {
-        // Need to download cape
-        networking.saveTexture(rid, capeHash, capepath, (netErr, response, img) => {
-          if (response && response.statusCode === 404) {
-            callback(netErr, capeHash, status, null);
-          } else {
-            callback(netErr, capeHash, status, img);
-          }
-        });
-      }
+    // Try reading existing file
+    const existingCape = await readFileIfExists(capepath);
+    if (existingCape) {
+      logging.debug(rid, 'Cape already exists, not downloading');
+      callback(err, capeHash, status, existingCape);
+      return;
+    }
+
+    // Download from network
+    networking.saveTexture(rid, capeHash, capepath, (netErr, response, img) => {
+      const is404 = response?.statusCode === 404;
+      callback(netErr || err, capeHash, status, is404 ? null : img);
     });
   });
 }

@@ -159,14 +159,7 @@ export async function updateTimestamp(
 /**
  * Save skin/cape hashes to cache
  * 
- * Creates or updates the cache entry for a user with their texture hashes.
- * Undefined values are skipped, allowing partial updates (e.g., only skin or only cape).
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param skinHash - Skin texture hash (null for no skin, undefined to skip)
- * @param capeHash - Cape texture hash (null for no cape, undefined to skip)
- * @param slim - Slim model flag (undefined to skip)
+ * Undefined values are skipped, allowing partial updates.
  */
 export async function saveHash(
   rid: string,
@@ -177,29 +170,15 @@ export async function saveHash(
 ): Promise<void> {
   logging.debug(rid, 'Caching skin:', skinHash, 'cape:', capeHash, 'slim:', slim);
   
-  // Convert null to empty string for storage (more compact than "null" string)
-  const normalizedSkinHash = skinHash === null ? '' : skinHash;
-  const normalizedCapeHash = capeHash === null ? '' : capeHash;
-  
   const key = userId?.toLowerCase();
-  
   if (!redis || !key) return;
 
-  // Build the hash fields to update
-  const fields: Record<string, string | number> = {};
+  // Build fields - convert null to empty string for storage
+  const fields: Record<string, string | number> = { t: Date.now() };
   
-  if (normalizedCapeHash !== undefined) {
-    fields['c'] = normalizedCapeHash;
-  }
-  if (normalizedSkinHash !== undefined) {
-    fields['s'] = normalizedSkinHash;
-  }
-  if (slim !== undefined) {
-    fields['a'] = Number(!!slim);
-  }
-  
-  // Always update timestamp
-  fields['t'] = Date.now();
+  if (skinHash !== undefined) fields['s'] = skinHash ?? '';
+  if (capeHash !== undefined) fields['c'] = capeHash ?? '';
+  if (slim !== undefined) fields['a'] = Number(!!slim);
 
   await redis.hSet(key, fields);
 }
