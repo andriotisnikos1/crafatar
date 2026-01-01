@@ -1,0 +1,43 @@
+{
+  "name": "crafatar-api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/crafatar-api/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/crafatar-api",
+        "main": "apps/crafatar-api/src/main.ts",
+        "tsConfig": "apps/crafatar-api/tsconfig.app.json",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/crafatar-api/src/views",
+            "output": "src/lib/views"
+          },
+          {
+            "glob": "**/*",
+            "input": "apps/crafatar-api/src/public",
+            "output": "src/lib/public"
+          }
+        ]
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "crafatar-api:build"
+      }
+    },
+    "test": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "crafatar-api:build",
+        "args": ["--test"]
+      }
+    }
+  },
+  "tags": []
+}

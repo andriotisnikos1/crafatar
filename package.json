@@ -1,25 +1,42 @@
 {
-  "name": "crafatar",
-  "version": "2.1.5",
+  "name": "@crafatar/source",
+  "version": "3.0.0",
+  "license": "MIT",
   "private": true,
   "scripts": {
-    "start": "node www.js",
-    "test": "mocha"
-  },
-  "engines": {
-    "node": "12.16.1"
-  },
-  "dependencies": {
-    "@randy.tarampi/lwip": "^1.3.1",
-    "canvas": "^2.6.1",
-    "crc": "^3.8.0",
-    "ejs": "^3.1.5",
-    "mime": "^2.4.6",
-    "redis": "^3.0.2",
-    "request": "^2.88.2",
-    "toobusy-js": "^0.5.1"
+    "build": "nx build crafatar-api",
+    "start": "node dist/apps/crafatar-api/src/main.js",
+    "dev": "npx ts-node apps/crafatar-api/src/main.ts",
+    "test": "mocha --require ts-node/register apps/crafatar-api/test/**/*.test.ts",
+    "lint": "nx lint crafatar-api"
   },
   "devDependencies": {
-    "mocha": "^7.2.0"
+    "@types/node": "^20.10.0",
+    "@nx/js": "^19.8.0",
+    "@nx/node": "^19.8.0",
+    "@nx/workspace": "^19.8.0",
+    "nx": "^19.8.0",
+    "typescript": "^5.3.0",
+    "@types/ejs": "^3.1.5",
+    "@types/mime": "^3.0.4",
+    "@types/toobusy-js": "^0.5.4",
+    "@types/mocha": "^10.0.6",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.2",
+    "@swc/core": "^1.3.100",
+    "@swc-node/register": "^1.6.8"
+  },
+  "dependencies": {
+    "tslib": "^2.6.2",
+    "canvas": "^2.11.2",
+    "crc": "^4.3.2",
+    "ejs": "^3.1.9",
+    "mime": "^3.0.0",
+    "redis": "^4.6.12",
+    "toobusy-js": "^0.5.1",
+    "sharp": "^0.33.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
