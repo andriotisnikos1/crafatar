@@ -17,3 +17,4 @@ export { default as skins } from './skins';
 export { default as server } from './server';
 export { default as response } from './response';
 export * from './object-utils';
+export * from './route-utils';

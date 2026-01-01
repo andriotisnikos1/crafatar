@@ -28,6 +28,11 @@ import cache, { CacheDetails } from './cache';
 import skins from './skins';
 import * as path from 'path';
 import * as fs from 'fs';
+import { promisify } from 'util';
+
+// Promisified fs functions for cleaner async code
+const fsAccess = promisify(fs.access);
+const fsWriteFile = promisify(fs.writeFile);
 
 // ============================================================================
 // Constants
@@ -195,13 +200,71 @@ function getHash(url: string): string {
 // ============================================================================
 
 /**
+ * Check if a file exists (async helper)
+ */
+async function fileExists(filepath: string): Promise<boolean> {
+  try {
+    await fsAccess(filepath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download and process skin image
+ * Handles: downloading, saving skin, extracting face and helm
+ */
+async function downloadAndProcessSkin(
+  rid: string,
+  url: string,
+  skinHash: string,
+  slim: boolean
+): Promise<{ error: Error | null; hash: string | null }> {
+  const facepath = path.join(config.directories.faces, skinHash + '.png');
+  const helmpath = path.join(config.directories.helms, skinHash + '.png');
+  const skinpath = path.join(config.directories.skins, skinHash + '.png');
+
+  // Check if already processed
+  if (await fileExists(facepath)) {
+    logging.debug(rid, 'Skin already exists, not downloading');
+    return { error: null, hash: skinHash };
+  }
+
+  // Download the skin
+  return new Promise((resolve) => {
+    networking.getFrom(rid, url, (img, response, netErr) => {
+      if (netErr || !img) {
+        resolve({ error: netErr, hash: null });
+        return;
+      }
+
+      // Process skin: save, extract face, extract helm
+      skins.saveImage(img, skinpath, (saveErr) => {
+        if (saveErr) {
+          resolve({ error: saveErr, hash: null });
+          return;
+        }
+
+        skins.extractFace(img, facepath, (faceErr) => {
+          if (faceErr) {
+            resolve({ error: faceErr, hash: null });
+            return;
+          }
+          logging.debug(rid, 'Face extracted');
+
+          skins.extractHelm(rid, facepath, img, helmpath, (helmErr) => {
+            logging.debug(rid, 'Helm extracted');
+            resolve({ error: helmErr, hash: skinHash });
+          });
+        });
+      });
+    });
+  });
+}
+
+/**
  * Download and store a skin image with extracted face and helm
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param profile - Mojang profile data
- * @param cacheDetails - Existing cache entry (if any)
- * @param callback - Called with (error, skinHash, isSlim)
  */
 function storeSkin(
   rid: string,
@@ -210,87 +273,37 @@ function storeSkin(
   cacheDetails: CacheDetails | null,
   callback: ImageCallback
 ): void {
-  networking.getSkinInfo(rid, userId, profile, (err, url, slim) => {
+  networking.getSkinInfo(rid, userId, profile, async (err, url, slim) => {
     // Use cached slim value on error
-    if (err) {
-      slim = cacheDetails ? cacheDetails.slim : false;
-    }
+    const effectiveSlim = err ? (cacheDetails?.slim ?? false) : slim;
 
-    if (!err && url) {
-      const skinHash = getHash(url);
-      
-      // Check if cache already has this hash (skin unchanged)
-      if (cacheDetails && cacheDetails.skin === skinHash) {
-        cache.updateTimestamp(rid, userId, false).then(() => {
-          callback(null, skinHash, slim);
-        }).catch((cacheErr) => {
-          callback(cacheErr, skinHash, slim);
-        });
-        return;
-      }
-
-      logging.debug(rid, 'New skin hash:', skinHash);
-      
-      // Define file paths
-      const facepath = path.join(config.directories.faces, skinHash + '.png');
-      const helmpath = path.join(config.directories.helms, skinHash + '.png');
-      const skinpath = path.join(config.directories.skins, skinHash + '.png');
-
-      // Check if face already exists (don't re-download)
-      fs.access(facepath, (fsErr) => {
-        if (!fsErr) {
-          logging.debug(rid, 'Skin already exists, not downloading');
-          callback(null, skinHash, slim);
-          return;
-        }
-
-        // Download the skin
-        networking.getFrom(rid, url, (img, response, netErr) => {
-          if (netErr || !img) {
-            callback(netErr, null, slim);
-            return;
-          }
-
-          // Save the full skin
-          skins.saveImage(img, skinpath, (saveErr) => {
-            if (saveErr) {
-              callback(saveErr, null, slim);
-              return;
-            }
-
-            // Extract and save the face
-            skins.extractFace(img, facepath, (faceErr) => {
-              if (faceErr) {
-                callback(faceErr, null, slim);
-                return;
-              }
-
-              logging.debug(rid, 'Face extracted');
-
-              // Extract and save the helm overlay
-              skins.extractHelm(rid, facepath, img, helmpath, (helmErr) => {
-                logging.debug(rid, 'Helm extracted');
-                logging.debug(rid, helmpath);
-                callback(helmErr, skinHash, slim);
-              });
-            });
-          });
-        });
-      });
-    } else {
+    if (err || !url) {
       callback(err, null, false);
+      return;
     }
+
+    const skinHash = getHash(url);
+
+    // Check if cache already has this hash (skin unchanged)
+    if (cacheDetails?.skin === skinHash) {
+      try {
+        await cache.updateTimestamp(rid, userId, false);
+        callback(null, skinHash, effectiveSlim);
+      } catch (cacheErr) {
+        callback(cacheErr as Error, skinHash, effectiveSlim);
+      }
+      return;
+    }
+
+    logging.debug(rid, 'New skin hash:', skinHash);
+    
+    const result = await downloadAndProcessSkin(rid, url, skinHash, effectiveSlim);
+    callback(result.error, result.hash, effectiveSlim);
   });
 }
 
 /**
  * Download and store a cape image
- * 
- * @param rid - Request ID for logging
- * @param userId - Minecraft UUID
- * @param profile - Mojang profile data
- * @param cacheDetails - Existing cache entry (if any)
- * @param callback - Called with (error, capeHash, false)
  */
 function storeCape(
   rid: string,
@@ -299,48 +312,47 @@ function storeCape(
   cacheDetails: CacheDetails | null,
   callback: ImageCallback
 ): void {
-  networking.getCapeUrl(rid, userId, profile, (err, url) => {
-    if (!err && url) {
-      const capeHash = getHash(url);
-      
-      // Check if cache already has this hash
-      if (cacheDetails && cacheDetails.cape === capeHash) {
-        cache.updateTimestamp(rid, userId, false).then(() => {
-          callback(null, capeHash, false);
-        }).catch((cacheErr) => {
-          callback(cacheErr, capeHash, false);
-        });
+  networking.getCapeUrl(rid, userId, profile, async (err, url) => {
+    if (err || !url) {
+      callback(err, null, false);
+      return;
+    }
+
+    const capeHash = getHash(url);
+
+    // Check if cache already has this hash
+    if (cacheDetails?.cape === capeHash) {
+      try {
+        await cache.updateTimestamp(rid, userId, false);
+        callback(null, capeHash, false);
+      } catch (cacheErr) {
+        callback(cacheErr as Error, capeHash, false);
+      }
+      return;
+    }
+
+    logging.debug(rid, 'New cape hash:', capeHash);
+    const capepath = path.join(config.directories.capes, capeHash + '.png');
+
+    // Check if cape already exists
+    if (await fileExists(capepath)) {
+      logging.debug(rid, 'Cape already exists, not downloading');
+      callback(null, capeHash, false);
+      return;
+    }
+
+    // Download and save the cape
+    networking.getFrom(rid, url, (img, response, netErr) => {
+      if (netErr || !img) {
+        callback(netErr, null, false);
         return;
       }
 
-      logging.debug(rid, 'New cape hash:', capeHash);
-      
-      const capepath = path.join(config.directories.capes, capeHash + '.png');
-
-      // Check if cape already exists
-      fs.access(capepath, (fsErr) => {
-        if (!fsErr) {
-          logging.debug(rid, 'Cape already exists, not downloading');
-          callback(null, capeHash, false);
-          return;
-        }
-
-        // Download and save the cape
-        networking.getFrom(rid, url, (img, response, netErr) => {
-          if (netErr || !img) {
-            callback(netErr, null, false);
-            return;
-          }
-
-          skins.saveImage(img, capepath, (saveErr) => {
-            logging.debug(rid, 'Cape saved');
-            callback(saveErr, capeHash, false);
-          });
-        });
+      skins.saveImage(img, capepath, (saveErr) => {
+        logging.debug(rid, 'Cape saved');
+        callback(saveErr, capeHash, false);
       });
-    } else {
-      callback(err, null, false);
-    }
+    });
   });
 }
 

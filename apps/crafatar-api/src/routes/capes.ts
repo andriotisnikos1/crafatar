@@ -13,6 +13,7 @@
 import * as helpers from '../lib/helpers';
 import cache from '../lib/cache';
 import { CrafatarRequest, ResponseResult } from '../lib/response';
+import { validateUuid, validationError, pathError } from '../lib/route-utils';
 
 // ============================================================================
 // Route Handler
@@ -31,63 +32,41 @@ export function capesRoute(
   req: CrafatarRequest,
   callback: (result: ResponseResult) => void
 ): void {
-  // Extract UUID from path
-  let userId = (req.url.path_list[1] || '').split('.')[0];
+  // Validate path length
+  if (req.url.path_list.length > 2) {
+    callback(pathError());
+    return;
+  }
+
+  // Parse and validate UUID
+  const userId = validateUuid(req.url.path_list[1] || '');
+  if (!userId) {
+    callback(validationError('Invalid UUID'));
+    return;
+  }
+
   const defaultVal = req.url.searchParams.get('default');
   const rid = req.id;
 
-  // ========================================================================
-  // Validate request
-  // ========================================================================
-
-  // Check for extra path segments
-  if (req.url.path_list.length > 2) {
-    callback({
-      status: -2,
-      body: 'Invalid Path',
-      code: 404,
-    });
-    return;
-  }
-
-  // Strip dashes from UUID
-  userId = userId.replace(/-/g, '');
-
-  // Validate UUID format
-  if (!helpers.idValid(userId)) {
-    callback({
-      status: -2,
-      body: 'Invalid UUID',
-    });
-    return;
-  }
-
-  // ========================================================================
   // Fetch and return cape
-  // ========================================================================
-
   try {
     helpers.getCape(rid, userId, (err, hash, status, image) => {
-      // Handle file not found errors
+      // Clear cache on file not found
       if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
         cache.removeHash(req.id, userId);
       }
 
-      // Return result (with optional redirect if no cape)
       callback({
-        status: status,
+        status,
         body: image || undefined,
         type: image ? 'image/png' : undefined,
         redirect: image ? undefined : (defaultVal || undefined),
         hash: hash || undefined,
-        err: err,
+        err,
       });
     });
   } catch (e) {
-    callback({
-      status: -1,
-      err: e as Error,
-    });
+    callback({ status: -1, err: e as Error });
   }
 }
 
