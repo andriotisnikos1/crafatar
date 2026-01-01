@@ -71,7 +71,8 @@ document.addEventListener("DOMContentLoaded", function(event) {
       return;
     }
     for (var j = 0; j < images.length; j++) {
-      images[j].src = images[j].dataset.src.replace("$", value);
+      // Replace all placeholder $ characters with the UUID value
+      images[j].src = images[j].dataset.src.replace(/\$/g, value);
     }
   };
 });
