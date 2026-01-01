@@ -1,0 +1,154 @@
+# =============================================================================
+# Docker Compose Configuration for Crafatar API
+# =============================================================================
+#
+# This file defines the complete deployment stack for Crafatar including:
+# - crafatar-api: The main Node.js application
+# - redis: Cache storage for skin/cape metadata
+#
+# Usage:
+#   Development: docker-compose up
+#   Production:  docker-compose -f docker-compose.yml up -d
+#
+# Environment Variables:
+#   See the 'environment' section in each service for available options.
+#   Override using a .env file or docker-compose.override.yml
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Crafatar API Service
+  # ===========================================================================
+  crafatar-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crafatar-api
+    restart: unless-stopped
+    
+    # Port mapping (host:container)
+    ports:
+      - "${PORT:-3000}:3000"
+    
+    # Environment configuration
+    environment:
+      # Server Settings
+      - PORT=3000
+      - BIND=0.0.0.0
+      - NODE_ENV=production
+      
+      # Redis connection (uses service name as hostname)
+      - REDIS_URL=redis://redis:6379
+      
+      # Avatar settings
+      - AVATAR_MIN=${AVATAR_MIN:-1}
+      - AVATAR_MAX=${AVATAR_MAX:-512}
+      - AVATAR_DEFAULT=${AVATAR_DEFAULT:-160}
+      
+      # Render settings
+      - RENDER_MIN=${RENDER_MIN:-1}
+      - RENDER_MAX=${RENDER_MAX:-10}
+      - RENDER_DEFAULT=${RENDER_DEFAULT:-6}
+      
+      # Cache settings
+      - CACHE_LOCAL=${CACHE_LOCAL:-1200}
+      - CACHE_BROWSER=${CACHE_BROWSER:-3600}
+      - EPHEMERAL_STORAGE=${EPHEMERAL_STORAGE:-false}
+      
+      # Optional: Cloudflare integration
+      - CLOUDFLARE=${CLOUDFLARE:-false}
+      
+      # Optional: Rate limiting for Mojang API
+      - SESSIONS_RATE_LIMIT=${SESSIONS_RATE_LIMIT:-}
+      
+      # Optional: Request timeout (ms)
+      - EXTERNAL_HTTP_TIMEOUT=${EXTERNAL_HTTP_TIMEOUT:-2000}
+      
+      # Optional: Debug mode
+      - DEBUG=${DEBUG:-false}
+      - LOG_TIME=${LOG_TIME:-true}
+      
+      # Optional: Sponsor content
+      - SPONSOR_SIDE=${SPONSOR_SIDE:-}
+      - SPONSOR_TOP_RIGHT=${SPONSOR_TOP_RIGHT:-}
+    
+    # Persistent storage for cached images
+    volumes:
+      - crafatar-images:/app/images
+    
+    # Service dependencies
+    depends_on:
+      redis:
+        condition: service_healthy
+    
+    # Health check configuration
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ===========================================================================
+  # Redis Cache Service
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: crafatar-redis
+    restart: unless-stopped
+    
+    # Redis configuration
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    
+    # Persistent storage for Redis data
+    volumes:
+      - crafatar-redis:/data
+    
+    # Health check configuration
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+# =============================================================================
+# Volume Definitions
+# =============================================================================
+volumes:
+  # Cached skin, face, helm, cape, and render images
+  crafatar-images:
+    driver: local
+  
+  # Redis persistence data
+  crafatar-redis:
+    driver: local
+
+# =============================================================================
+# Network Configuration (optional - uses default bridge network)
+# =============================================================================
+# networks:
+#   crafatar-network:
+#     driver: bridge

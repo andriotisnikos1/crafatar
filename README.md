@@ -1,12 +1,22 @@
 # Crafatar
-<img alt="logo" src="lib/public/logo.png" align="right" width="128px" height="128px">
-
-[![travis](https://img.shields.io/travis/crafatar/crafatar/master.svg?style=flat-square)](https://travis-ci.org/crafatar/crafatar/) [![Coverage Status](https://img.shields.io/coveralls/crafatar/crafatar.svg?style=flat-square)](https://coveralls.io/r/crafatar/crafatar) [![Code Climate](https://img.shields.io/codeclimate/github/crafatar/crafatar.svg?style=flat-square)](https://codeclimate.com/github/crafatar/crafatar) [![dependency status](https://img.shields.io/david/crafatar/crafatar.svg?style=flat-square)](https://david-dm.org/crafatar/crafatar) [![devDependency status](https://img.shields.io/david/dev/crafatar/crafatar.svg?style=flat-square)](https://david-dm.org/crafatar/crafatar#info=devDependencies) [![docs status](https://inch-ci.org/github/crafatar/crafatar.svg?branch=master&style=flat-square)](https://inch-ci.org/github/crafatar/crafatar)
+<img alt="logo" src="apps/crafatar-api/src/public/logo.png" align="right" width="128px" height="128px">
 
 <a href="https://crafatar.com">Crafatar</a> serves Minecraft avatars based on the skin for use in external applications.
 Inspired by <a href="https://gravatar.com">Gravatar</a> (hence the name) and <a href="https://minotar.net">Minotar</a>.
 
-Image manipulation is done by [lwip](https://github.com/EyalAr/lwip). 3D renders are created with [node-canvas](https://github.com/Automattic/node-canvas) / [cairo](http://cairographics.org/).
+**This is a complete TypeScript rewrite using Nx monorepo architecture.**
+
+Image manipulation is done by [sharp](https://sharp.pixelplumbing.com/). 3D renders are created with [node-canvas](https://github.com/Automattic/node-canvas) / [cairo](http://cairographics.org/).
+
+## Tech Stack
+
+- **TypeScript**: Fully typed codebase with comprehensive documentation
+- **Nx**: Modern monorepo build system
+- **Node.js**: v18+ runtime
+- **Redis**: Caching layer for skin metadata
+- **Canvas**: Server-side canvas for 3D rendering
+- **Sharp**: High-performance image processing
+- **Docker**: Container-ready deployment
 
 # Contributions welcome!
 
@@ -27,6 +37,40 @@ Issues tagged with [![help wanted](https://i.imgur.com/kkozGKY.png "help wanted"
 
 Please [visit the website](https://crafatar.com) for details.
 
+## Project Structure
+
+```
+crafatar/
+├── apps/
+│   └── crafatar-api/          # Main API application
+│       ├── src/
+│       │   ├── config.ts      # Configuration management
+│       │   ├── main.ts        # Application entry point
+│       │   ├── lib/           # Core library modules
+│       │   │   ├── cache.ts       # Redis caching
+│       │   │   ├── helpers.ts     # Image retrieval helpers
+│       │   │   ├── logging.ts     # Logging utilities
+│       │   │   ├── networking.ts  # HTTP requests to Mojang
+│       │   │   ├── renders.ts     # 3D skin rendering
+│       │   │   ├── response.ts    # HTTP response handling
+│       │   │   ├── server.ts      # HTTP server
+│       │   │   └── skins.ts       # Skin image processing
+│       │   ├── routes/        # API route handlers
+│       │   │   ├── index.ts       # Documentation page
+│       │   │   ├── avatars.ts     # Avatar endpoint
+│       │   │   ├── skins.ts       # Skin endpoint
+│       │   │   ├── renders.ts     # 3D render endpoint
+│       │   │   └── capes.ts       # Cape endpoint
+│       │   ├── views/         # EJS templates
+│       │   └── public/        # Static assets
+│       └── project.json       # Nx project configuration
+├── docker-compose.yml         # Docker deployment configuration
+├── Dockerfile                 # Container build configuration
+├── nx.json                    # Nx workspace configuration
+├── tsconfig.base.json         # TypeScript base configuration
+└── package.json               # Dependencies and scripts
+```
+
 ## Contact
 
 * You can [follow](https://twitter.com/crafatar) us on twitter
@@ -34,27 +78,94 @@ Please [visit the website](https://crafatar.com) for details.
 
 # Installation
 
-## Docker
+## Docker (Recommended)
+
+```bash
+# Build and start with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f crafatar-api
+
+# Stop
+docker-compose down
+```
+
+Or manually with Docker:
 
 ```sh
 docker network create crafatar
 docker run --net crafatar -d --name redis redis
-docker run --net crafatar -v crafatar-images:/home/app/crafatar/images -e REDIS_URL=redis://redis -p 3000:3000 crafatar/crafatar
+docker run --net crafatar -v crafatar-images:/app/images -e REDIS_URL=redis://redis -p 3000:3000 crafatar/crafatar
 ```
 
 ## Manual
 
-- Install [nodejs](https://nodejs.org/) 12 (LTS)
+- Install [Node.js](https://nodejs.org/) 18+ (LTS recommended)
 - Install `redis-server`
-- Run `npm install`  
-  If that fails, it's likely because because of `node-canvas` dependencies. Follow [this guide](https://github.com/Automattic/node-canvas/wiki#installation-guides) to install them.
+- Install canvas dependencies:
+  - **Ubuntu/Debian**: `apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev`
+  - **macOS**: `brew install pkg-config cairo pango libpng jpeg giflib`
+- Run `npm install`
+- Run `npm run build`
 - Run `npm start`
 
 Crafatar is now available at http://0.0.0.0:3000.
 
-## Configration / Environment variables
+## Development
 
-See the `config.js` file.
+```bash
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Start the server
+npm start
+
+# Development mode (if available)
+npm run dev
+```
+
+## Configuration / Environment variables
+
+See the `apps/crafatar-api/src/config.ts` file for all available options.
+
+### Server Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | HTTP server port | `3000` |
+| `BIND` | IP address to bind | `0.0.0.0` |
+| `DEBUG` | Enable debug mode | `false` |
+| `LOG_TIME` | Include timestamps in logs | `false` |
+
+### Redis
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_URL` | Redis connection URL | `redis://localhost:6379` |
+
+### Cache Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CACHE_LOCAL` | Seconds until skin check | `1200` (20 min) |
+| `CACHE_BROWSER` | Browser cache max-age | `3600` (1 hour) |
+| `EPHEMERAL_STORAGE` | Flush Redis on start | `false` |
+| `CLOUDFLARE` | Using Cloudflare proxy | `false` |
+
+### Image Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AVATAR_MIN` | Minimum avatar size | `1` |
+| `AVATAR_MAX` | Maximum avatar size | `512` |
+| `AVATAR_DEFAULT` | Default avatar size | `160` |
+| `RENDER_MIN` | Minimum render scale | `1` |
+| `RENDER_MAX` | Maximum render scale | `10` |
+| `RENDER_DEFAULT` | Default render scale | `6` |
 
 # Operational notes
 
@@ -83,3 +194,7 @@ It can be helpful to monitor redis commands to debug caching errors:
 ```sh
 redis-cli monitor
 ```
+
+# License
+
+MIT
